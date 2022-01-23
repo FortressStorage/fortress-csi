@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DOCKER_REGISTRY: docker.io
-      DOCKER_IMAGE: mrjoshlab/fortress-csi
+      DOCKER_IMAGE: fortressstorage/fortress-csi
       DOCKER_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKER_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
       DOCKER_TARGET_PLATFORM: linux/amd64,linux/arm64,linux/arm/v7
