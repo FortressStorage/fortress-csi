@@ -1,0 +1,304 @@
+apiVersion: storage.k8s.io/v1
+kind: CSIDriver
+metadata:
+  name: fortress
+spec:
+  attachRequired: true
+  podInfoOnMount: true
+
+---
+kind: StorageClass
+apiVersion: storage.k8s.io/v1
+metadata:
+  name: fortress-block-storage
+  namespace: kube-system
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: fortress
+
+---
+kind: StatefulSet
+apiVersion: apps/v1
+metadata:
+  name: csi-fortress-controller
+  namespace: kube-system
+spec:
+  serviceName: "csi-fortress"
+  replicas: 1
+  selector:
+    matchLabels:
+      app: csi-fortress-controller
+  template:
+    metadata:
+      labels:
+        app: csi-fortress-controller
+        role: csi-fortress
+    spec:
+      serviceAccountName: csi-fortress-controller-sa
+      containers:
+        - name: csi-provisioner
+          image: k8s.gcr.io/sig-storage/csi-provisioner:v3.0.0
+          args:
+            - "--volume-name-prefix=pvc"
+            - "--volume-name-uuid-length=16"
+            - "--csi-address=$(ADDRESS)"
+            - "--v=5"
+            - "--default-fstype=ext4"
+          env:
+            - name: ADDRESS
+              value: /csi/csi.sock
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+          imagePullPolicy: "Always"
+        - name: csi-attacher
+          image: k8s.gcr.io/sig-storage/csi-attacher:v3.3.0
+          args:
+            - "--v=5"
+            - "--csi-address=$(ADDRESS)"
+          env:
+            - name: ADDRESS
+              value: /csi/csi.sock
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+          imagePullPolicy: "Always"
+        - name: csi-fortress-plugin
+          image: mrjoshlab/fortress-csi:latest
+          args:
+            - "--endpoint=$(CSI_ENDPOINT)"
+            - "--token=$(API_TOKEN)"
+          env:
+            - name: CSI_ENDPOINT
+              value: unix:///csi/csi.sock
+            - name: API_TOKEN
+              value: ""
+          imagePullPolicy: "Always"
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+      volumes:
+        - name: socket-dir
+          emptyDir: {}
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: csi-fortress-controller-sa
+  namespace: kube-system
+
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: csi-fortress-attacher-role
+  namespace: kube-system
+rules:
+  - apiGroups: [ "" ]
+    resources: [ "persistentvolumes" ]
+    verbs: [ "get", "list", "watch", "update", "patch" ]
+  - apiGroups: [ "" ]
+    resources: [ "nodes" ]
+    verbs: [ "get", "list", "watch" ]
+  - apiGroups: [ "storage.k8s.io" ]
+    resources: [ "csinodes" ]
+    verbs: [ "get", "list", "watch" ]
+  - apiGroups: [ "storage.k8s.io" ]
+    resources: [ "volumeattachments" ]
+    verbs: [ "get", "list", "watch", "update", "patch" ]
+  - apiGroups: [ "storage.k8s.io" ]
+    resources: [ "volumeattachments/status" ]
+    verbs: [ "patch" ]
+
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: csi-controller-attacher-binding
+  namespace: kube-system
+subjects:
+  - kind: ServiceAccount
+    name: csi-fortress-controller-sa
+    namespace: kube-system
+roleRef:
+  kind: ClusterRole
+  name: csi-fortress-attacher-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: csi-fortress-provisioner-role
+  namespace: kube-system
+rules:
+  - apiGroups: [ "" ]
+    resources: [ "secrets" ]
+    verbs: [ "get", "list" ]
+  - apiGroups: [ "" ]
+    resources: [ "persistentvolumes" ]
+    verbs: [ "get", "list", "watch", "create", "delete" ]
+  - apiGroups: [ "" ]
+    resources: [ "persistentvolumeclaims" ]
+    verbs: [ "get", "list", "watch", "update" ]
+  - apiGroups: [ "storage.k8s.io" ]
+    resources: [ "storageclasses" ]
+    verbs: [ "get", "list", "watch" ]
+  - apiGroups: [ "storage.k8s.io" ]
+    resources: [ "csinodes" ]
+    verbs: [ "get", "list", "watch" ]
+  - apiGroups: [ "" ]
+    resources: [ "events" ]
+    verbs: [ "list", "watch", "create", "update", "patch" ]
+  - apiGroups: [ "" ]
+    resources: [ "nodes" ]
+    verbs: [ "get", "list", "watch" ]
+  - apiGroups: [ "storage.k8s.io" ]
+    resources: [ "volumeattachments" ]
+    verbs: [ "get", "list", "watch" ]
+
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: csi-controller-provisioner-binding
+  namespace: kube-system
+subjects:
+  - kind: ServiceAccount
+    name: csi-fortress-controller-sa
+    namespace: kube-system
+roleRef:
+  kind: ClusterRole
+  name: csi-fortress-provisioner-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+kind: DaemonSet
+apiVersion: apps/v1
+metadata:
+  name: csi-fortress-node
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      app: csi-fortress-node
+  template:
+    metadata:
+      labels:
+        app: csi-fortress-node
+        role: csi-fortress
+    spec:
+      serviceAccountName: csi-fortress-node-sa
+      hostNetwork: true
+      containers:
+        - name: driver-registrar
+          image: k8s.gcr.io/sig-storage/csi-node-driver-registrar:v2.3.0
+          args:
+            - "--v=5"
+            - "--csi-address=$(ADDRESS)"
+            - "--kubelet-registration-path=$(DRIVER_REG_SOCK_PATH)"
+          env:
+            - name: ADDRESS
+              value: /csi/csi.sock
+            - name: DRIVER_REG_SOCK_PATH
+              value: /var/lib/kubelet/plugins/block.csi.fortress.com/csi.sock
+            - name: KUBE_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          volumeMounts:
+            - name: plugin-dir
+              mountPath: /csi/
+            - name: registration-dir
+              mountPath: /registration/
+        - name: csi-fortress-plugin
+          image: mrjoshlab/fortress-csi:latest
+          args:
+            - "--endpoint=$(CSI_ENDPOINT)"
+          env:
+            - name: CSI_ENDPOINT
+              value: unix:///csi/csi.sock
+          imagePullPolicy: "Always"
+          securityContext:
+            privileged: true
+            capabilities:
+              add: [ "SYS_ADMIN" ]
+            allowPrivilegeEscalation: true
+          volumeMounts:
+            - name: plugin-dir
+              mountPath: /csi
+            - name: pods-mount-dir
+              mountPath: /var/lib/kubelet
+              mountPropagation: "Bidirectional"
+            - mountPath: /dev
+              name: device-dir
+      volumes:
+        - name: registration-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins_registry/
+            type: DirectoryOrCreate
+        - name: kubelet-dir
+          hostPath:
+            path: /var/lib/kubelet
+            type: Directory
+        - name: plugin-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins/block.csi.fortress.com
+            type: DirectoryOrCreate
+        - name: pods-mount-dir
+          hostPath:
+            path: /var/lib/kubelet
+            type: Directory
+        - name: device-dir
+          hostPath:
+            path: /dev
+        - name: udev-rules-etc
+          hostPath:
+            path: /etc/udev
+            type: Directory
+        - name: udev-rules-lib
+          hostPath:
+            path: /lib/udev
+            type: Directory
+        - name: udev-socket
+          hostPath:
+            path: /run/udev
+            type: Directory
+        - name: sys
+          hostPath:
+            path: /sys
+            type: Directory
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: csi-fortress-node-sa
+  namespace: kube-system
+
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: driver-registrar-binding
+  namespace: kube-system
+subjects:
+  - kind: ServiceAccount
+    name: csi-fortress-node-sa
+    namespace: kube-system
+roleRef:
+  kind: ClusterRole
+  name: csi-fortress-node-driver-registrar-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: csi-fortress-node-driver-registrar-role
+  namespace: kube-system
+rules:
+  - apiGroups: [ "" ]
+    resources: [ "events" ]
+    verbs: [ "get", "list", "watch", "create", "update", "patch" ]

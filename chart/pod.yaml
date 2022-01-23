@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: busybox-test
+spec:
+  containers:
+  - image: busybox
+    name: busybox
+    command: ["/bin/sh", "-ec", "while :; do echo '.'; sleep 5 ; done"]
+    volumeMounts:
+    - name: persistent-storage
+      mountPath: /test
+  volumes:
+  - name: persistent-storage
+    persistentVolumeClaim:
+      claimName: "busybox-test"
