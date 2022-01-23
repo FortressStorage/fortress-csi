@@ -19,7 +19,7 @@ func NewIdentityServer(d *FortressDriver) *IdentityServer {
 }
 
 func (ids *IdentityServer) GetPluginInfo(ctx context.Context, req *csi.GetPluginInfoRequest) (*csi.GetPluginInfoResponse, error) {
-	// Vendor version should be consistent with Longhorn manager version.
+	// Vendor version should be consistent with Fortress manager version.
 	return &csi.GetPluginInfoResponse{
 		Name:          ids.driverName,
 		VendorVersion: ids.version,

@@ -33,7 +33,7 @@ func NewNodeServer(d *FortressDriver) *NodeServer {
 	}
 }
 
-// NodePublishVolume will mount the volume /dev/longhorn/<volume_name> to target_path
+// NodePublishVolume will mount the volume /dev/fortress/<volume_name> to target_path
 func (ns *NodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublishVolumeRequest) (*csi.NodePublishVolumeResponse, error) {
 
 	if req.VolumeId == "" {
@@ -121,8 +121,6 @@ func (ns *NodeServer) NodeGetVolumeStats(ctx context.Context, req *csi.NodeGetVo
 	}, nil
 }
 
-// NodeExpandVolume is designed to expand the file system for ONLINE expansion,
-// But Longhorn supports OFFLINE expansion only.
 func (ns *NodeServer) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandVolumeRequest) (*csi.NodeExpandVolumeResponse, error) {
 	volumePath := req.GetVolumePath()
 	if volumePath == "" {

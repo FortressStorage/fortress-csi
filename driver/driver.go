@@ -12,7 +12,6 @@ const (
 	defaultTimeout    = 1 * time.Minute
 )
 
-// VultrDriver struct
 type FortressDriver struct {
 	name            string
 	endpoint        string
